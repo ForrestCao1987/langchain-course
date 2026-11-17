@@ -9,7 +9,7 @@ load_dotenv()
 
 def main():
     print("Hello from langchain-course!")
-    api_key = os.environ.get("api_key")
+    api_key = os.environ.get("OPENAI_API_KEY")
     base_url = os.environ.get("base_url")
 
     # call LLM
