@@ -5,56 +5,56 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from langchain.chat_models import init_chat_model
-from langchain.messages import HumanMessage, SystemMessage, ToolMessage
 from langchain.tools import tool
+from langchain_core.messages import HumanMessage, SystemMessage, ToolMessage
+from langsmith import traceable
 
-max_count = 10
-llm = init_chat_model(
-    model="openai:qwen3.8-max",
-    api_key=os.getenv("OPENAI_API_KEY"),
-    base_url=os.getenv("OPENAI_API_BASE_URL"),
-    temperature=0,
-)
+max_iterations = 10
 
-
-# --------------tool--------------------------
+# --- tool ---
 
 
 @tool
-def get_product_price(device: str) -> float:
-    """Fetch price of the device，available device scope is laptop,Headset,keyboard
+def get_product_price(product: str) -> float:
+    """look up the price of the product，available device scope is laptop,headphone,keyboard
     args:
-        device: device name
-    returns: price of the device
+        product: product name
+    returns: price of the product
     """
-    print(f"    >>start the get_price tool with query={device}")
-    device_scope = {"laptop": 1299, "headset": 120, "keyboard": 30}
-    return device_scope[device]
+    print(f"    >>Executing the get_product_price tool with query={product}")
+    prices = {"laptop": 1299.99, "headphone": 149.95, "keyboard": 89.90}
+    return prices.get(product, 0)
 
 
 @tool
-def get_product_discount(price: float, medal_type) -> float:
-    """Calculate the final price with medal_type
+def apply_discount(price: float, discount_tier: str) -> float:
+    """apply a discount tier to a product price and return the final price
     args:
-        price: price of the device
-        medal_type: scope cover glod silver bronze
-    returns: the final price with discount
+        price: price of the product
+        discount_tier: available tiers: gold silver bronze
+    returns: the final price
     """
     print(
-        f"    >>start the get_product_discount tool with price={price},medal={medal_type}"
+        f"    >>start the get_product_discount tool with price={price},medal={discount_tier}"
     )
-    model_discount_dict = {"bronze": 5, "silver": 10, "glod": 15}
-    discount = round(1 - model_discount_dict[medal_type] / 100, 2)
-    return discount
+    discount_percentages = {"bronze": 5, "silver": 12, "gold": 23}
+    discount = discount_percentages.get(discount_tier, 0)
+    final_price = round(price * (1 - discount / 100), 2)
+    return final_price
 
 
-tools = [get_product_price, get_product_discount]
-tool_dict = {t.name: t for t in tools}
-model = llm.bind_tools(tools)
-
-
-# --------------Agent loop--------------------------
-def agent_loop():
+# --- Agent loop ---
+@traceable(name="Langchain Agent Loop")
+def agent_loop(questions: str):
+    llm = init_chat_model(
+        model="openai:qwen3.8-max",
+        api_key=os.getenv("OPENAI_API_KEY"),
+        base_url=os.getenv("OPENAI_API_BASE_URL"),
+        temperature=0,
+    )
+    tools = [get_product_price, apply_discount]
+    tool_dict = {t.name: t for t in tools}
+    model = llm.bind_tools(tools)
     messages = [
         SystemMessage(
             content=(
@@ -73,25 +73,28 @@ def agent_loop():
                 "ask them which tier to use — do NOT assume one."
             )
         ),
-        HumanMessage(content="laptop多少钱"),
+        HumanMessage(content=questions),
     ]
 
-    for i in range(1, max_count + 1):
+    for i in range(1, max_iterations + 1):
+        print(f"--- Iteration {i} ---")
         ai_message = model.invoke(messages)
 
         tool_call = ai_message.tool_calls
-        if tool_call is None:
-            return ai_message.content
+        if len(tool_call) == 0:
+            print(ai_message.content)
+            return None
 
         for tool_call_item in tool_call:
             tool_name = tool_call_item.get("name", "")
             tool_arg = tool_call_item.get("args", {})
             tool_call_id = tool_call_item.get("id", {})
+            print(f"    >>[tool selected] with {tool_name} and arg {tool_arg}")
 
             if tool_name in tool_dict.keys():
                 tool_to_use = tool_dict.get(tool_name)
                 observation = tool_to_use.invoke(tool_arg)
-                print(f"    >>the tool called {tool_name} with args={tool_arg}")
+                print(f"    >>[tool result] {observation}")
             else:
                 raise ValueError(f"Tool '{tool_name}' not found")
 
@@ -99,7 +102,15 @@ def agent_loop():
         messages.append(
             ToolMessage(content=str(observation), tool_call_id=tool_call_id)
         )
+    print(f"ERROR: max iterations reached without a final answer")
     return None
 
 
-agent_loop()
+if __name__ == "__main__":
+    print("Hello langchain with (.bind agent tool)")
+    print()
+    print(
+        agent_loop(
+            "what is the price of the laptop after apply to the gold medal tier."
+        )
+    )
