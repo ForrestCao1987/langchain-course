@@ -42,6 +42,8 @@ def apply_discount(price: float, discount_tier: str) -> float:
     return final_price
 
 
+# --- Helper: traced qwen call ---
+# Difference 3: Without LangChain, we must manually trace LLM calls for LangSmith.
 @traceable(name="qwen_chat_traced", run_type="llm")
 def qwen_chat_traced(messages, tools):
     client = OpenAI(
@@ -147,6 +149,7 @@ def agent_loop(questions: str):
 
     for i in range(1, max_iterations + 1):
         print(f"--- Iteration {i} ---")
+        # Difference 5: qwen_chat_traced directly instead of llm_with_tools.invoke()
         ai_message = qwen_chat_traced(messages, tools)
 
         tool_calls = ai_message.tool_calls
@@ -154,6 +157,7 @@ def agent_loop(questions: str):
             print(ai_message.content)
             return None
 
+        # Difference 6: Attribute access (.function.name) instead of dict access (.get("name"))
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
             tool_arg = json.loads(tool_call.function.arguments)
@@ -161,6 +165,7 @@ def agent_loop(questions: str):
 
             if tool_name in tool_dict.keys():
                 tool_to_use = tool_dict.get(tool_name)
+                # Difference 7: Direct function call instead of tool.invoke()
                 observation = tool_to_use(**tool_arg)
                 print(f"    >>[tool result] {observation}")
             else:
